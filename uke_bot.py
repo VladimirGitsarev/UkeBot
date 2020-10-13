@@ -162,7 +162,8 @@ def callback_worker(call):
             print('Chosen language:', data_value)
             keyboard = get_keyboard(data_value)
             msg = bot.send_message(call.message.chat.id, 'Поиск исполнителя\nВыберите букву:', reply_markup=keyboard)
-    except:
+    except as err:
+    	print(err)
         bot.send_message(call.message.chat.id, 'Что-то пошло не так...\nПопробуй еще раз!')
 
 
