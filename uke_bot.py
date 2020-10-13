@@ -100,7 +100,6 @@ def search_handler(message):
 @bot.callback_query_handler(func=lambda call: True)
 def callback_worker(call):
     try:
-        test = 1/0
         data_key = call.data.split(':')[0]
         data_value = call.data.split(':')[1]
         if data_key == 'singer':
