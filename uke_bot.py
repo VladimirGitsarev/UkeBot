@@ -163,7 +163,7 @@ def callback_worker(call):
             keyboard = get_keyboard(data_value)
             msg = bot.send_message(call.message.chat.id, 'Поиск исполнителя\nВыберите букву:', reply_markup=keyboard)
     except:
-        bot.send_message(call.message.chat.id, 'Что-то пошло не так...\nПопробуй еще раз!', reply_markup=keyboard)
+        bot.send_message(call.message.chat.id, 'Что-то пошло не так...\nПопробуй еще раз!')
 
 
 bot.polling()
