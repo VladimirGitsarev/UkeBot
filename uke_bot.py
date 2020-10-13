@@ -4,6 +4,7 @@ from telebot import types
 from bs4 import BeautifulSoup
 import requests
 import string
+import traceback
 
 #main variables
 TOKEN = "1038924278:AAHoYHOuNnzlEEh3EH8wjc0Alw9GDXJ2pWI"
@@ -99,6 +100,7 @@ def search_handler(message):
 @bot.callback_query_handler(func=lambda call: True)
 def callback_worker(call):
     try:
+        test = 1/0
         data_key = call.data.split(':')[0]
         data_value = call.data.split(':')[1]
         if data_key == 'singer':
@@ -162,8 +164,8 @@ def callback_worker(call):
             print('Chosen language:', data_value)
             keyboard = get_keyboard(data_value)
             msg = bot.send_message(call.message.chat.id, 'Поиск исполнителя\nВыберите букву:', reply_markup=keyboard)
-    except as err:
-    	print(err)
+    except:
+        traceback.print_exc()
         bot.send_message(call.message.chat.id, 'Что-то пошло не так...\nПопробуй еще раз!')
 
 
