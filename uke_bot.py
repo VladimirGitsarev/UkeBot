@@ -6,7 +6,7 @@ import requests
 import string
 
 #main variables
-
+TOKEN = "1038924278:AAHoYHOuNnzlEEh3EH8wjc0Alw9GDXJ2pWI"
 ROOT_URL = 'https://uchords.net/'
 SINGER_URL = 'https://uchords.net/ru/ukulele/ispolniteli/'
 RUS_BTNS = {
