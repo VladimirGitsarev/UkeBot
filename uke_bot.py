@@ -5,6 +5,8 @@ from bs4 import BeautifulSoup
 import requests
 import string
 import traceback
+from telebot.types import InputMediaPhoto
+from PIL import Image
 
 #main variables
 TOKEN = "1038924278:AAHoYHOuNnzlEEh3EH8wjc0Alw9GDXJ2pWI"
@@ -24,12 +26,19 @@ bot = telebot.TeleBot(TOKEN)
 singers = []
 songs = []
 cur_song = {'url':None, 'tonality':0}
+media_group = []
 
 def get_song(url):
     cur_song['url'] = url
     response = requests.get(url)
     soup = BeautifulSoup(response.text, 'lxml')
     pre = soup.find('pre')
+    spans = pre.find_all('span')
+    chords = ''
+    for span in spans:
+        chords += span.text.lower().replace('#', 'x') + ' '
+    chords = set(" ".join(chords.split()).split(' '))
+    get_chords_images(chords)
     title = soup.h1.text.split(',')[0]
     pattern_div = soup.find('div', id='vibrboy')
     pattern = soup.find('div', id='vibrboy').img['alt'] if pattern_div is not None else 'Нет'
@@ -76,6 +85,12 @@ def get_keyboard(lang='russian'):
     keyboard.row(btn09, btn_lang)
     return keyboard
 
+def get_chords_images(chords):
+    media_group.clear()
+    for chord in chords:
+        url = ROOT_URL + 'images/' + chord + '.png'
+        media_group.append(InputMediaPhoto(media=url))
+    
 @bot.message_handler(commands=['start'])
 def start_handler(message):
     chat_id = message.chat.id
@@ -85,10 +100,8 @@ def start_handler(message):
 Все аккорды размещены на сайте _{}_.
 Бот создан с целью упростить поиск аккордов без необходимсоти посещения сайта.\n
 Используя различные команды ты можешь управлять ботом:\n
-*/search* - позволяется производить поиск по исполнителю и выбирать искомую композицию 
+*/search* - позволяет производить поиск по исполнителю и выбирать искомую композицию 
 '''.format(ROOT_URL)
-    bot.send_message(chat_id, '<a href="https://cdn.imgbin.com/18/17/13/imgbin-musical-instruments-orchestra-sound-musical-theatre-musical-instruments-Srx5tUA45NmH57nKNkXG84kYF.jpg" />',
-                 parse_mode="HTML")
     msg = bot.send_message(chat_id, message, parse_mode="Markdown")
 
 @bot.message_handler(commands=['search'])
@@ -125,14 +138,14 @@ def callback_worker(call):
                     cur_song['url'] = cur_song['url'].replace('-{}.html'.format(TONALITIES[cur_song['tonality']]), 
                                                             '-{}.html'.format(int(TONALITIES[cur_song['tonality']]) + add))
                     cur_song['tonality'] += add
-
-            print(cur_song['url'])
             title, pattern, tonality, text = get_song(cur_song['url'])
             keyboard = types.InlineKeyboardMarkup()
             btn_minus = types.InlineKeyboardButton(text='-', callback_data='tonality:minus')
             btn_info = types.InlineKeyboardButton(text='Тональность: {}'.format(cur_song['tonality']), callback_data='tonality:info')
             btn_plus = types.InlineKeyboardButton(text='+', callback_data='tonality:plus')
+            btn_chords = types.InlineKeyboardButton(text='Показать аккорды', callback_data='chords:show')
             keyboard.add(btn_minus, btn_info, btn_plus)
+            keyboard.row(btn_chords)
             msg = bot.send_message(call.message.chat.id, 
                 '_{}\nБой: {}\nТональность: {}_\n{}'.format(title, pattern, tonality, text), 
                 parse_mode="Markdown", reply_markup=keyboard)
@@ -142,7 +155,9 @@ def callback_worker(call):
             btn_minus = types.InlineKeyboardButton(text='-', callback_data='tonality:minus')
             btn_info = types.InlineKeyboardButton(text='Тональность: 0', callback_data='tonality:info')
             btn_plus = types.InlineKeyboardButton(text='+', callback_data='tonality:plus')
+            btn_chords = types.InlineKeyboardButton(text='Показать аккорды', callback_data='chords:show')
             keyboard.add(btn_minus, btn_info, btn_plus)
+            keyboard.row(btn_chords)
             title, pattern, tonality, text = get_song(url)
             msg = bot.send_message(call.message.chat.id, 
                 '_{}\nБой: {}\nТональность: {}_\n{}'.format(title, pattern, tonality, text), 
@@ -163,6 +178,8 @@ def callback_worker(call):
             print('Chosen language:', data_value)
             keyboard = get_keyboard(data_value)
             msg = bot.send_message(call.message.chat.id, 'Поиск исполнителя\nВыберите букву:', reply_markup=keyboard)
+        elif data_key == 'chords':
+            bot.send_media_group(call.message.chat.id, media_group)
     except:
         traceback.print_exc()
         bot.send_message(call.message.chat.id, 'Что-то пошло не так...\nПопробуй еще раз!')
