@@ -1,1 +1,1 @@
-worker: python uke_bot.py $PORT
+bot: python3 uke_bot.py
