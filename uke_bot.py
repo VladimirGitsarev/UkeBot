@@ -11,7 +11,8 @@ from PIL import Image
 #main variables
 TOKEN = "1038924278:AAHoYHOuNnzlEEh3EH8wjc0Alw9GDXJ2pWI"
 ROOT_URL = 'https://uchords.net/'
-SINGER_URL = 'https://uchords.net/ru/ukulele/ispolniteli/'
+UKULELE_SINGER_URL = 'https://uchords.net/ru/ukulele/ispolniteli/'
+GUITAR_SINGER_URL = 'https://uchords.net/ru/gitara/ispolniteli/'
 RUS_BTNS = {
             'а':'a', 'б':'b', 'в':'v', 'г':'g', 'д':'d', 'е':'je',
             'ж':'zh', 'з':'z', 'и':'i', 'к':'k', 'л':'l', 'м':'m', 'н':'n', 
@@ -27,6 +28,8 @@ singers = []
 songs = []
 cur_song = {'url':None, 'tonality':0}
 media_group = []
+instrument = {'name':None}
+singer_url = None
 
 def get_song(url):
     cur_song['url'] = url
@@ -37,6 +40,7 @@ def get_song(url):
     chords = ''
     for span in spans:
         chords += span.text.lower().replace('#', 'x') + ' '
+    chords = chords.replace('|', '')
     chords = set(" ".join(chords.split()).split(' '))
     get_chords_images(chords)
     title = soup.h1.text.split(',')[0]
@@ -87,8 +91,9 @@ def get_keyboard(lang='russian'):
 
 def get_chords_images(chords):
     media_group.clear()
-    for chord in chords:
-        url = ROOT_URL + 'images/' + chord + '.png'
+    add = 'guitar/' if instrument['name'] == 'guitar' else ''
+    for chord in list(chords)[:10]:
+        url = ROOT_URL + 'images/' + add + chord + '.png'
         media_group.append(InputMediaPhoto(media=url))
     
 @bot.message_handler(commands=['start'])
@@ -96,16 +101,19 @@ def start_handler(message):
     chat_id = message.chat.id
     message = '''
 *Привет!*\n
-Здесь ты можешь найти аккорды для укулеле. 
+Здесь ты можешь найти большое количество аккордов российских и иностранных исполнителей для гитары и укулеле. 
 Все аккорды размещены на сайте _{}_.
 Бот создан с целью упростить поиск аккордов без необходимсоти посещения сайта.\n
 Используя различные команды ты можешь управлять ботом:\n
-*/search* - позволяет производить поиск по исполнителю и выбирать искомую композицию 
+*/ukulele* - поиск по исполнителю и выбор композиции для укулеле\n
+*/guitar* - поиск по исполнителю и выбор композиции для гитары
 '''.format(ROOT_URL)
     msg = bot.send_message(chat_id, message, parse_mode="Markdown")
 
-@bot.message_handler(commands=['search'])
+@bot.message_handler(commands=['ukulele', 'guitar'])
 def search_handler(message):
+    instrument['name'] = 'ukulele' if message.text == '/ukulele' else 'guitar'
+    print('Chosen instrument:', instrument['name'])
     chat_id = message.chat.id
     keyboard = get_keyboard()
     msg = bot.send_message(chat_id, 'Поиск исполнителя\nВыберите букву:', reply_markup=keyboard)
@@ -151,6 +159,7 @@ def callback_worker(call):
                 parse_mode="Markdown", reply_markup=keyboard)
         elif data_key == 'song':
             url = ROOT_URL + songs[int(data_value)]
+            cur_song['tonality'] = 0
             keyboard = types.InlineKeyboardMarkup()
             btn_minus = types.InlineKeyboardButton(text='-', callback_data='tonality:minus')
             btn_info = types.InlineKeyboardButton(text='Тональность: 0', callback_data='tonality:info')
@@ -165,12 +174,13 @@ def callback_worker(call):
         elif data_key.startswith('letter'):
             print('Chosen letter:', data_value)
             lang = 'ru_' if data_key == 'letter-rus' else 'en_'
+            singer_url = UKULELE_SINGER_URL if instrument == 'ukulele' else GUITAR_SINGER_URL
             if lang == 'ru_':
-                url = SINGER_URL + lang + RUS_BTNS[data_value] +\
+                url = singer_url + lang + RUS_BTNS[data_value] +\
                     '/' + str(list(RUS_BTNS).index(data_value) + 2) + '.html'
             else:
                 index = '30' if data_value == '09' else str(string.ascii_lowercase.index(data_value) + 31)
-                url = SINGER_URL + lang + data_value +\
+                url = singer_url + lang + data_value +\
                     '/' +  index + '.html'
             keyboard = parse_list(url, 'singers')
             msg = bot.send_message(call.message.chat.id, 'Исполнители на букву {}:'.format(data_value.upper()), reply_markup=keyboard)
