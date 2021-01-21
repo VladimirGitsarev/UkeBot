@@ -12,10 +12,12 @@ from PIL import Image
 guitar - Поиск по исполнителю для гитары
 ukulele -  Поиск по исполнителю для укулеле
 chords - Поиск аккорда 
+help - Помощь
 """
 
 #main variables
 TOKEN = "1038924278:AAHoYHOuNnzlEEh3EH8wjc0Alw9GDXJ2pWI"
+SEARCH_URL = "https://amdm.ru/search/?q="
 ROOT_URL = 'https://uchords.net/'
 UKULELE_SINGER_URL = 'https://uchords.net/ru/ukulele/ispolniteli/'
 GUITAR_SINGER_URL = 'https://uchords.net/ru/gitara/ispolniteli/'
@@ -33,10 +35,13 @@ NOTES_ADD = ['', '5', '6', '7', '9', 'maj7', 'sus4', 'dim', 'm', 'm6', 'm7', 'm9
 bot = telebot.TeleBot(TOKEN)
 singers = []
 songs = []
+links = []
+query = {'query':'', 'count':0, 'result':None}
 cur_song = {'url':None, 'tonality':0}
 media_group = []
 instrument = {'name':None}
 singer_url = None
+chords_list = {'list':[]}
 
 def get_song(url):
     cur_song['url'] = url
@@ -48,8 +53,8 @@ def get_song(url):
     for span in spans:
         chords += span.text.lower().replace('#', 'x') + ' '
     chords = chords.replace('|', '')
-    chords = set(" ".join(chords.split()).split(' '))
-    get_chords_images(chords)
+    chords_list = set(" ".join(chords.split()).split(' '))
+    get_chords_images(chords_list)
     title = soup.h1.text.split(',')[0]
     pattern_div = soup.find('div', id='vibrboy')
     pattern = soup.find('div', id='vibrboy').img['alt'] if pattern_div is not None else 'Нет'
@@ -59,6 +64,22 @@ def get_song(url):
                     .replace('<em>', '').replace('</em>', '')\
                     .replace('<pre>', '').replace('</pre>', '')
     return title, pattern, cur_song['tonality'], text
+
+def get_search_song(url):
+    rq = requests.get('https:' + url)
+    soup = BeautifulSoup(rq.text, 'lxml')
+    title = soup.h1.text
+    spans = soup.find('pre').find_all('b')
+    chords = ''
+    for span in spans:
+        chords += span.text.lower().replace('#', 'x') + ' '
+    chords = chords.replace('|', '')
+    chords_list['list'] = set(" ".join(chords.split()).split(' '))
+    text = str(soup.find('pre'))\
+        .replace('<b>', '*').replace('</b>', '*')\
+        .replace('<pre itemprop="chordsBlock">', '')\
+        .replace('</pre>', '')
+    return title, text
 
 def parse_list(url, obj):
     callback = 'singer:' if obj == 'singers' else 'song:'
@@ -73,6 +94,45 @@ def parse_list(url, obj):
         btn = types.InlineKeyboardButton(text=link.text, callback_data=callback+str(iterator))
         keyboard.add(btn)
         iterator += 1
+    return keyboard
+
+def parse_search_list():
+    url = SEARCH_URL
+    if query['count'] >= 30:
+        url = SEARCH_URL.replace('search/', 'search/page' + str(query['count']//30 + 1) + '/') 
+    rq = requests.get(url + query['query'].replace(' ', '+'))
+    soup = BeautifulSoup(rq.text, 'lxml')
+    string = soup.find('div', class_='h1__info').text
+    query['result'] = [int(s) for s in string.split() if s.isdigit()][0]
+    tags = soup.find('body').find('table').findAll('td', class_='artist_name')
+    keyboard = types.InlineKeyboardMarkup()
+    iterator = 0
+    links.clear()
+    for e in tags[query['count']%30:query['count']%30 + 10]:
+        singer_tag, song_tag = e.findAll('a')
+        links.append(song_tag['href'])
+        btn = types.InlineKeyboardButton(
+            text="{} - {}".format(singer_tag.text, song_tag.text), 
+            callback_data='link:'+str(iterator)
+            )
+        keyboard.add(btn)
+        iterator += 1
+    more_btn = types.InlineKeyboardButton(
+            text='Далее ' + u'\U0001F449', 
+            callback_data='link:more'
+            )
+    less_btn = types.InlineKeyboardButton(
+            text=u"\U0001F448" + ' Назад', 
+            callback_data='link:less'
+            )
+    if query['count'] == 0 and query['result'] > 10:
+        keyboard.add(more_btn)
+    elif query['result'] < query['count'] + 10 and query['result'] > 10:
+        keyboard.add(less_btn)
+    else:
+        if query['result'] > 10:
+            keyboard.row(less_btn, more_btn)
+
     return keyboard
 
 def get_keyboard(lang='russian', chords=None, note=None):
@@ -136,13 +196,49 @@ def start_handler(message):
 */ukulele* - поиск по исполнителю и выбор композиции для укулеле\n
 */guitar* - поиск по исполнителю и выбор композиции для гитары\n
 */chords* - поиск аккорда для гитары и укулеле
-'''.format(ROOT_URL)
+
+Кроме того, можешь просто ввести поисковой запрос не используя команды, например, с названием исполнителя или композиции,
+либо с полным названием: и исполнителя, и композиции. Тогда бот произведет поиск на сайте _{}_.
+Выбирай любой из подходящих результатов поиска, бот покажет аккорды к выбранной композиции.
+В таком режиме, однако, нет возможности менять тональность, но библиотека композиций больше.
+'''.format(ROOT_URL, 'https://amdm.ru/')
     msg = bot.send_message(chat_id, message, parse_mode="Markdown")
 
 @bot.message_handler(commands=['chords'])
 def chords_handler(message):
     keyboard = get_keyboard(chords='notes')
     bot.send_message(message.chat.id, u'\U0001F3B5' + ' Выберите ноту:', reply_markup=keyboard)
+
+@bot.message_handler(commands=['help'])
+def help_handler(message):
+    msg = '''
+*Управление через команды:*
+Используя различные команды ты можешь управлять ботом:\n
+*/ukulele* - поиск по исполнителю и выбор композиции для укулеле\n
+*/guitar* - поиск по исполнителю и выбор композиции для гитары\n
+*/chords* - поиск аккорда для гитары и укулеле
+
+*Управление через сообщения:*
+Просто отправь сообщение боту с названием исполнителя, композиции или названием целиком:
+исполнитель и композиция. Бот обработает запрос и отправит несколько вариантов результатов поиска,
+выбирай любой вариант, перемещаясь по списку, используя кнопки далее и назад.
+Бот отправит аккорды для выбранной композиции.
+
+*Аккорды*:
+Для каждой композиции есть возможность просмотра аппликатуры аккордов, 
+для этого внизу каждого сообщения с текстом и аккордами есть кнопки: 
+для гитары и для укулеле.
+Также команда */chords* позволяет просмотреть аппликатуру для конкретного аккорда.
+_Если в композиции встречаются редкоиспользуемые или совсем неизвестные аккорды,
+бот может выдать ошибку при попытке просмотреть аппликатуры_
+
+*Тональность*:
+Для аккордов с сайта _{}_ есть возможность повышать и понижать тональность, для этого
+используются кнопки внизу каждого сообщеения "+" и "-".
+Для аккордов с сайта _{}_ возможность изменения тональности будет добавлена позже.
+
+'''.format(ROOT_URL, 'https://amdm.ru/')
+    bot.send_message(message.chat.id, parse_mode="Markdown", text=msg)
 
 @bot.message_handler(commands=['ukulele', 'guitar'])
 def search_handler(message):
@@ -151,6 +247,22 @@ def search_handler(message):
     chat_id = message.chat.id
     keyboard = get_keyboard()
     msg = bot.send_message(chat_id, u'\U0001F50E' + ' Поиск исполнителя\n' + u'\U0001F520' + ' Выберите букву:', reply_markup=keyboard)
+
+@bot.message_handler(content_types=["text"])
+def get_text_message(message):
+    try:
+        query['query'] = message.text
+        query['count'] = 0
+        keyboard = parse_search_list()
+        print("Search query:", query['query'])
+        bot.send_message(
+            message.chat.id, 
+            u'\U0001F50E' + ' Поиск по запросу \"{}\" \nНайдено {} совпадений\nСтраница {} из {}:'\
+                .format(query['query'], query['result'], query['count']//10 + 1, query['result']//10 + 1), 
+            reply_markup=keyboard)
+    except:
+        traceback.print_exc()
+        bot.send_message(message.chat.id, u'\U0000274C' + ' Что-то пошло не так...\nПопробуйте еще раз!')
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_worker(call):
@@ -163,6 +275,36 @@ def callback_worker(call):
             print('Singer:', name)
             keyboard = parse_list(url, 'songs')
             msg = bot.send_message(call.message.chat.id, u'\U0001F3A4' + ' Композиции исполнителя {}:'.format(name), reply_markup=keyboard)
+        elif data_key == 'link':
+            if data_value in ['more', 'less']:
+                if data_value == 'more':
+                    query['count'] += 10
+                elif data_value == 'less':
+                    if query['count'] != 0:
+                        query['count'] -=10
+                keyboard = parse_search_list()
+                bot.edit_message_text(
+                    chat_id=call.message.chat.id, 
+                    message_id=call.message.message_id,
+                    text= u'\U0001F50E' + ' Поиск по запросу \"{}\" \nНайдено {} совпадений\nСтраница {} из {}:'\
+                        .format(query['query'], query['result'], query['count']//10 + 1, query['result']//10 + 1),
+                    reply_markup=keyboard
+                    )
+            else:
+                title, text = get_search_song(links[int(data_value)])
+                print("Song:", title)
+                msg = '_{}_\n \n{}'.format(title, text)
+                keyboard = types.InlineKeyboardMarkup()
+                btn_left = types.InlineKeyboardButton(
+                    text=u'\U0001F3BC' + "\nГитара", 
+                    callback_data='chords:guitar'
+                    )
+                btn_right = types.InlineKeyboardButton(
+                    text=u'\U0001F3BC' +  "\nУкулеле", 
+                    callback_data='chords:uke'
+                    )
+                keyboard.row(btn_left, btn_right)
+                bot.send_message(call.message.chat.id, msg, parse_mode="Markdown", reply_markup=keyboard)
         elif data_key == 'tonality' and data_value != 'info':
             if cur_song['tonality'] == 0:
                 add = '-1.html' if data_value == 'plus' else '-11.html'
@@ -188,8 +330,8 @@ def callback_worker(call):
             btn_chords = types.InlineKeyboardButton(text=u'\U0001F3B5' + 'Показать аккорды', callback_data='chords:show')
             keyboard.add(btn_minus, btn_info, btn_plus)
             keyboard.row(btn_chords)
-            msg = bot.send_message(call.message.chat.id, 
-                '_{}\nБой: {}\nТональность: {}_\n{}'.format(title, pattern, tonality, text), 
+            bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, 
+                text='_{}\nБой: {}\nТональность: {}_\n{}'.format(title, pattern, tonality, text),
                 parse_mode="Markdown", reply_markup=keyboard)
         elif data_key == 'song':
             url = ROOT_URL + songs[int(data_value)]
@@ -241,8 +383,12 @@ def callback_worker(call):
                                     caption='Аккорд {} на укулеле'.format(caption))              
                 ]
                 bot.send_media_group(call.message.chat.id, media)
+            elif data_value == 'guitar' or 'uke':
+                instrument['name'] = data_value
+                get_chords_images(chords_list['list'])
+                bot.send_media_group(call.message.chat.id, media_group)
     except:
         traceback.print_exc()
-        bot.send_message(call.message.chat.id, u'\U0000274C' + ' Что-то пошло не так...\nПопробуй еще раз!')
+        bot.send_message(call.message.chat.id, u'\U0000274C' + ' Что-то пошло не так...\nПопробуйте еще раз!')
 
 bot.polling()
