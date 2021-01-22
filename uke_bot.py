@@ -21,6 +21,9 @@ SEARCH_URL = "https://amdm.ru/search/?q="
 ROOT_URL = 'https://uchords.net/'
 UKULELE_SINGER_URL = 'https://uchords.net/ru/ukulele/ispolniteli/'
 GUITAR_SINGER_URL = 'https://uchords.net/ru/gitara/ispolniteli/'
+LONG_MSG_ERROR = 'A request to the Telegram API was unsuccessful. Error code: 400 Description: Bad Request: message is too long'
+PARSE_ERROR = 'A request to the Telegram API was unsuccessful. Error code: 400 Description: Bad Request: can\'t parse entities: Can\'t find end of the entity starting at byte offset'
+GROUP_SEND_ERROR = 'A request to the Telegram API was unsuccessful. Error code: 400 Description: Bad Request: group send failed'
 RUS_BTNS = {
             'а':'a', 'б':'b', 'в':'v', 'г':'g', 'д':'d', 'е':'je',
             'ж':'zh', 'з':'z', 'и':'i', 'к':'k', 'л':'l', 'м':'m', 'н':'n', 
@@ -56,6 +59,7 @@ def get_song(url):
     chords_list = set(" ".join(chords.split()).split(' '))
     get_chords_images(chords_list)
     title = soup.h1.text.split(',')[0]
+    cur_song['title'] = title
     pattern_div = soup.find('div', id='vibrboy')
     pattern = soup.find('div', id='vibrboy').img['alt'] if pattern_div is not None else 'Нет'
     print('Song:', title)
@@ -66,9 +70,11 @@ def get_song(url):
     return title, pattern, cur_song['tonality'], text
 
 def get_search_song(url):
+    cur_song['url'] = url
     rq = requests.get('https:' + url)
     soup = BeautifulSoup(rq.text, 'lxml')
     title = soup.h1.text
+    cur_song['title'] = title
     spans = soup.find('pre').find_all('b')
     chords = ''
     for span in spans:
@@ -183,6 +189,20 @@ def get_chords_images(chords):
     for chord in list(chords)[:10]:
         url = ROOT_URL + 'images/' + add + chord + '.png'
         media_group.append(InputMediaPhoto(media=url))
+
+def get_search_tone_song():
+    cur_song['id'] = cur_song['url'].split('/')[5]
+    data = {'song_id': cur_song['id'], 'tone':cur_song['tonality']}
+    rq = requests.post('https://amdm.ru/json/song/transpon/', data=data)
+    soup = BeautifulSoup(str(rq.json()['song_text']), 'lxml')
+    spans = soup.find_all('b')
+    chords = ''
+    for span in spans:
+        chords += span.text.lower().replace('#', 'x') + ' '
+    chords = chords.replace('|', '')
+    chords_list['list'] = set(" ".join(chords.split()).split(' '))
+    text = rq.json()['song_text'].replace('<b>', '*').replace('</b>', '*')
+    return text
     
 @bot.message_handler(commands=['start'])
 def start_handler(message):
@@ -200,7 +220,7 @@ def start_handler(message):
 Кроме того, можешь просто ввести поисковой запрос не используя команды, например, с названием исполнителя или композиции,
 либо с полным названием: и исполнителя, и композиции. Тогда бот произведет поиск на сайте _{}_.
 Выбирай любой из подходящих результатов поиска, бот покажет аккорды к выбранной композиции.
-В таком режиме, однако, нет возможности менять тональность, но библиотека композиций больше.
+В таком режиме библиотека композиций больше, однако композиции в результатах поиска могут дублироваться.
 '''.format(ROOT_URL, 'https://amdm.ru/')
     msg = bot.send_message(chat_id, message, parse_mode="Markdown")
 
@@ -221,7 +241,7 @@ def help_handler(message):
 *Управление через сообщения:*
 Просто отправь сообщение боту с названием исполнителя, композиции или названием целиком:
 исполнитель и композиция. Бот обработает запрос и отправит несколько вариантов результатов поиска,
-выбирай любой вариант, перемещаясь по списку, используя кнопки далее и назад.
+выбирай любой вариант, перемещаясь по списку, используя кнопки "далее" и "назад".
 Бот отправит аккорды для выбранной композиции.
 
 *Аккорды*:
@@ -229,15 +249,12 @@ def help_handler(message):
 для этого внизу каждого сообщения с текстом и аккордами есть кнопки: 
 для гитары и для укулеле.
 Также команда */chords* позволяет просмотреть аппликатуру для конкретного аккорда.
-_Если в композиции встречаются редкоиспользуемые или совсем неизвестные аккорды,
-бот может выдать ошибку при попытке просмотреть аппликатуры_
 
 *Тональность*:
-Для аккордов с сайта _{}_ есть возможность повышать и понижать тональность, для этого
+Для аккордов есть возможность повышать и понижать тональность, для этого
 используются кнопки внизу каждого сообщеения "+" и "-".
-Для аккордов с сайта _{}_ возможность изменения тональности будет добавлена позже.
 
-'''.format(ROOT_URL, 'https://amdm.ru/')
+'''
     bot.send_message(message.chat.id, parse_mode="Markdown", text=msg)
 
 @bot.message_handler(commands=['ukulele', 'guitar'])
@@ -260,7 +277,9 @@ def get_text_message(message):
             u'\U0001F50E' + ' Поиск по запросу \"{}\" \nНайдено {} совпадений\nСтраница {} из {}:'\
                 .format(query['query'], query['result'], query['count']//10 + 1, query['result']//10 + 1), 
             reply_markup=keyboard)
-    except:
+    except AttributeError:
+        bot.send_message(message.chat.id, u'\U0001F6AB' + ' Поисковый запрос не дал результатов\nНичего не найдено. Попробуйте еще раз!')
+    except:    
         traceback.print_exc()
         bot.send_message(message.chat.id, u'\U0000274C' + ' Что-то пошло не так...\nПопробуйте еще раз!')
 
@@ -291,10 +310,15 @@ def callback_worker(call):
                     reply_markup=keyboard
                     )
             else:
+                cur_song['tonality'] = 0
+                cur_song['title'] = None
                 title, text = get_search_song(links[int(data_value)])
                 print("Song:", title)
                 msg = '_{}_\n \n{}'.format(title, text)
                 keyboard = types.InlineKeyboardMarkup()
+                btn_minus = types.InlineKeyboardButton(text=' - ', callback_data='tone:minus')
+                btn_info = types.InlineKeyboardButton(text=u'\U0001F3B6' + ' Тон: {}'.format(cur_song['tonality']), callback_data='tone:info')
+                btn_plus = types.InlineKeyboardButton(text=' + ', callback_data='tone:plus')
                 btn_left = types.InlineKeyboardButton(
                     text=u'\U0001F3BC' + "\nГитара", 
                     callback_data='chords:guitar'
@@ -303,6 +327,7 @@ def callback_worker(call):
                     text=u'\U0001F3BC' +  "\nУкулеле", 
                     callback_data='chords:uke'
                     )
+                keyboard.row(btn_minus, btn_info, btn_plus)
                 keyboard.row(btn_left, btn_right)
                 bot.send_message(call.message.chat.id, msg, parse_mode="Markdown", reply_markup=keyboard)
         elif data_key == 'tonality' and data_value != 'info':
@@ -336,6 +361,7 @@ def callback_worker(call):
         elif data_key == 'song':
             url = ROOT_URL + songs[int(data_value)]
             cur_song['tonality'] = 0
+            cur_song['title'] = None
             keyboard = types.InlineKeyboardMarkup()
             btn_minus = types.InlineKeyboardButton(text=' - ', callback_data='tonality:minus')
             btn_info = types.InlineKeyboardButton(text=u'\U0001F3B6' + ' Тон: 0', callback_data='tonality:info')
@@ -360,6 +386,39 @@ def callback_worker(call):
                     '/' +  index + '.html'
             keyboard = parse_list(url, 'singers')
             msg = bot.send_message(call.message.chat.id, u'\U0001F3A4' + ' Исполнители на букву {}:'.format(data_value.upper()), reply_markup=keyboard)
+        elif data_key == 'tone':
+            if data_value == 'plus':
+                if cur_song['tonality'] == 11:
+                    cur_song['tonality'] = 0
+                else:
+                    cur_song['tonality'] +=1
+            elif data_value == 'minus':
+                if cur_song['tonality'] == -11:
+                    cur_song['tonality'] = 0
+                else:
+                    cur_song['tonality'] -=1
+            text = get_search_tone_song()
+            msg = '_{}_\n \n{}'.format(cur_song['title'], text)
+            keyboard = types.InlineKeyboardMarkup()
+            btn_minus = types.InlineKeyboardButton(text=' - ', callback_data='tone:minus')
+            btn_info = types.InlineKeyboardButton(text=u'\U0001F3B6' + ' Тон: {}'.format(cur_song['tonality']), callback_data='tone:info')
+            btn_plus = types.InlineKeyboardButton(text=' + ', callback_data='tone:plus')
+            btn_left = types.InlineKeyboardButton(
+                text=u'\U0001F3BC' + "\nГитара", 
+                callback_data='chords:guitar'
+                )
+            btn_right = types.InlineKeyboardButton(
+                text=u'\U0001F3BC' +  "\nУкулеле", 
+                callback_data='chords:uke'
+                )
+            keyboard.row(btn_minus, btn_info, btn_plus)
+            keyboard.row(btn_left, btn_right)
+            bot.edit_message_text(
+                chat_id=call.message.chat.id, 
+                message_id=call.message.message_id, 
+                text=msg, parse_mode="Markdown",
+                reply_markup=keyboard
+                )
         elif data_key == 'lang':
             print('Language:', data_value)
             keyboard = get_keyboard(data_value)
@@ -387,8 +446,24 @@ def callback_worker(call):
                 instrument['name'] = data_value
                 get_chords_images(chords_list['list'])
                 bot.send_media_group(call.message.chat.id, media_group)
-    except:
-        traceback.print_exc()
-        bot.send_message(call.message.chat.id, u'\U0000274C' + ' Что-то пошло не так...\nПопробуйте еще раз!')
+    except Exception as e:
+        if str(e) == LONG_MSG_ERROR:
+            bot.send_message(call.message.chat.id, u'\U0001F914' + ' Это сообщение слишком длинное.\n' + 
+                'К сожалению, Telegram не позволяет отправлять сообщения такой длины.\n' + 
+                'Вы можете просмотреть аккорды к данной композиции на сайте по ссылке:\n{}'\
+                .format('https:' + cur_song['url']))
+        elif PARSE_ERROR in str(e):
+            bot.send_message(call.message.chat.id, u'\U0001F914' + ' Cообщение не может быть отправлено.\n' + 
+                'К сожалению, Telegram не позволяет отправить данное сообщение.\n' + 
+                'Вы можете просмотреть аккорды к данной композиции на сайте по ссылке:\n{}'\
+                .format('https:' + cur_song['url']))
+        elif str(e) == GROUP_SEND_ERROR:
+            bot.send_message(call.message.chat.id, u'\U0001F914' + ' Аппликатуры не найдены.\n' + 
+                'К сожалению, просмотр некоторых аппликатур не доступен.\n' + 
+                'Вы можете просмотреть аппликатуры аккордов к данной композиции на сайте по ссылке:\n{}'\
+                .format('https:' + cur_song['url']))
+        else:
+            traceback.print_exc()
+            bot.send_message(call.message.chat.id, u'\U0000274C' + ' Что-то пошло не так...\nПопробуйте еще раз!')
 
 bot.polling()
