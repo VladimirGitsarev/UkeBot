@@ -1,3 +1,5 @@
+# code: utf8
+
 import telebot
 import parser
 from telebot import types

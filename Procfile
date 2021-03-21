@@ -1,1 +1,1 @@
-bot: python3 uke_bot.py
+bot: python3 v2/bot.py
