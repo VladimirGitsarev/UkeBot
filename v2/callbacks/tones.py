@@ -9,7 +9,7 @@ from parsers.songs import SongParser
 class TonesCallback:
 
     @staticmethod
-    def tone_callback(data_value, cur_song, chords_list):
+    def tone_callback(data_value, cur_song, chords_list, user_id, db_session):
         """Update current song tonality"""
         if data_value == 'plus':
             if cur_song['tonality'] == 11:
@@ -22,14 +22,14 @@ class TonesCallback:
             else:
                 cur_song['tonality'] -= 1
 
-        return TonesCallback._get_song_text(cur_song, chords_list)
+        return TonesCallback._get_song_text(cur_song, chords_list, user_id, db_session)
 
     @staticmethod
-    def _get_song_text(cur_song, chords_list) -> Tuple[InlineKeyboardMarkup, str]:
+    def _get_song_text(cur_song, chords_list, user_id, db_session) -> Tuple[InlineKeyboardMarkup, str]:
         """Get song text with chords for updated tonality"""
         cur_song['id'] = cur_song['url'].split('/')[5]
         data = {'song_id': cur_song['id'], 'tone': cur_song['tonality']}
         text = SongParser.tone_song_text(data, cur_song, chords_list)
-        keyboard = SongsKeyboards.song_keyboard(cur_song)
+        keyboard = SongsKeyboards.song_keyboard(cur_song, user_id, db_session)
 
         return keyboard, text
